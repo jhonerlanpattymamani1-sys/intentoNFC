@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Asistencia NFC / RFID Escolar</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- QRCode.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        
+        /* Custom Wave animation for NFC tap */
+        .nfc-pulse {
+            position: relative;
+        }
+        .nfc-pulse::before, .nfc-pulse::after {
+            content: '';
+            position: absolute;
+            inset: -10px;
+            border-radius: 50%;
+            border: 2px solid #3b82f6;
+            animation: pulseWave 2s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+            opacity: 0;
+        }
+        .nfc-pulse::after {
+            animation-delay: 1s;
+        }
+        @keyframes pulseWave {
+            0% { transform: scale(0.8); opacity: 0.8; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+
+        /* Glassmorphism utility */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 flex flex-col justify-between">
+
+    <!-- TOP NAVBAR -->
+    <header class="bg-slate-900 text-white shadow-md sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center space-x-3">
+                <div class="bg-blue-600 p-2 rounded-lg text-white">
+                    <i data-lucide="nfc" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight">NFC EduPass RFID</h1>
+                    <p class="text-xs text-slate-400">Control de Asistencia Escolar</p>
+                </div>
+            </div>
+
+            <!-- Role Selector & Tools -->
+            <div class="flex items-center space-x-2 bg-slate-800 p-1.5 rounded-xl text-sm">
+                <button id="btnRoleStudent" onclick="setRole('student')" class="px-3 py-1.5 rounded-lg font-medium transition flex items-center space-x-2 bg-blue-600 text-white">
+                    <i data-lucide="user" class="w-4 h-4"></i>
+                    <span>Estudiante</span>
+                </button>
+                <button id="btnRoleTeacher" onclick="setRole('teacher')" class="px-3 py-1.5 rounded-lg font-medium transition flex items-center space-x-2 text-slate-300 hover:text-white">
+                    <i data-lucide="graduation-cap" class="w-4 h-4"></i>
+                    <span>Maestro / Admin</span>
+                </button>
+                <button id="btnRoleHardware" onclick="setRole('hardware')" class="px-3 py-1.5 rounded-lg font-medium transition flex items-center space-x-2 text-slate-300 hover:text-white">
+                    <i data-lucide="cpu" class="w-4 h-4"></i>
+                    <span>Hardware RC522</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT CONTAINER -->
+    <main class="max-w-7xl mx-auto w-full px-4 py-6 flex-grow">
+
+        <!-- ================================================================= -->
+        <!-- MODO ESTUDIANTE: Configuración, Credencial Digital & Emulacion NFC -->
+        <!-- ================================================================= -->
+        <section id="studentView" class="space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                <!-- Formulario de Configuración de Perfil -->
+                <div class="lg:col-span-5 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <div class="flex items-center space-x-3 mb-6 pb-3 border-b border-slate-100">
+                        <i data-lucide="user-cog" class="w-6 h-6 text-blue-600"></i>
+                        <h2 class="text-lg font-bold text-slate-800">Perfil del Estudiante</h2>
+                    </div>
+
+                    <form id="studentForm" onsubmit="saveStudentProfile(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Nombre Completo</label>
+                            <input type="text" id="inputName" required placeholder="Ej: Carlos Eduardo Mendoza" 
+                                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm">
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Colegio / Unidad Educativa</label>
+                            <input type="text" id="inputSchool" required placeholder="Ej: U.E. Mariscal Sucre" 
+                                class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Curso</label>
+                                <select id="inputGrade" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm">
+                                    <option value="1ro">1ro Secundaria</option>
+                                    <option value="2do">2do Secundaria</option>
+                                    <option value="3ro">3ro Secundaria</option>
+                                    <option value="4to">4to Secundaria</option>
+                                    <option value="5to">5to Secundaria</option>
+                                    <option value="6to">6to Secundaria</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Paralelo</label>
+                                <select id="inputParallel" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm">
+                                    <option value="A">Paralelo A</option>
+                                    <option value="B">Paralelo B</option>
+                                    <option value="C">Paralelo C</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">UID NFC Asignado (Hexadecimal)</label>
+                            <div class="flex space-x-2">
+                                <input type="text" id="inputNfcUid" readonly class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 font-mono text-xs text-slate-600">
+                                <button type="button" onclick="generateRandomUID()" class="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-semibold transition flex items-center gap-1">
+                                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-xl transition flex items-center justify-center space-x-2 shadow-sm">
+                            <i data-lucide="save" class="w-4 h-4"></i>
+                            <span>Guardar Perfil de Estudiante</span>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Carnet Digital & Emulación NFC Touch -->
+                <div class="lg:col-span-7 flex flex-col items-center justify-between bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 p-6 rounded-2xl text-white shadow-xl relative overflow-hidden">
+                    <div class="w-full flex justify-between items-center mb-4">
+                        <span class="text-xs font-semibold uppercase tracking-widest text-blue-400">Credencial Escolar Digital NFC</span>
+                        <div class="flex items-center space-x-1.5 text-xs bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-full border border-emerald-500/30">
+                            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                            <span>NFC Activo</span>
+                        </div>
+                    </div>
+
+                    <!-- Tarjeta / Credencial Visual -->
+                    <div class="w-full max-w-sm bg-white/10 backdrop-blur-md border border-white/20 p-5 rounded-2xl shadow-2xl relative my-2">
+                        <div class="flex justify-between items-start mb-4">
+                            <div>
+                                <h3 id="cardSchool" class="text-xs uppercase font-bold text-blue-300 tracking-wider">UNIDAD EDUCATIVA</h3>
+                                <h2 id="cardName" class="text-lg font-extrabold text-white">Nombre Estudiante</h2>
+                            </div>
+                            <div id="qrcode" class="p-1 bg-white rounded-lg"></div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 text-xs mb-4 pt-2 border-t border-white/10">
+                            <div>
+                                <span class="text-slate-400 block">Curso:</span>
+                                <span id="cardGradeParallel" class="font-bold text-sm text-white">1ro "A"</span>
+                            </div>
+                            <div>
+                                <span class="text-slate-400 block">UID NFC:</span>
+                                <span id="cardUid" class="font-mono text-blue-200">04:A2:8B:12</span>
+                            </div>
+                        </div>
+
+                        <!-- Botón interactivo de marcación / Toque NFC -->
+                        <div class="mt-4 flex flex-col items-center">
+                            <button onclick="triggerNfcTap()" class="nfc-pulse w-20 h-20 bg-blue-600 hover:bg-blue-500 active:scale-95 rounded-full flex flex-col items-center justify-center shadow-lg transition duration-200 group">
+                                <i data-lucide="radio" class="w-8 h-8 text-white group-hover:scale-110 transition"></i>
+                            </button>
+                            <span class="text-xs text-blue-200 font-medium mt-3">Tocar para acoplar al Lector RC522</span>
+                        </div>
+                    </div>
+
+                    <!-- Estado de la transmisión NFC -->
+                    <div id="nfcStatusAlert" class="w-full mt-4 bg-blue-900/40 border border-blue-500/30 p-3 rounded-xl text-center text-xs text-blue-200 flex items-center justify-center space-x-2">
+                        <i data-lucide="info" class="w-4 h-4 text-blue-400"></i>
+                        <span>Acerca este dispositivo móvil al lector físico o presiona la antena superior.</span>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ================================================================= -->
+        <!-- MODO MAESTRO / ADMINISTRADOR: Filtros por Curso/Paralelo y Reportes -->
+        <!-- ================================================================= -->
+        <section id="teacherView" class="hidden space-y-6">
+            
+            <!-- Barra de Filtros interactivos -->
+            <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="clipboard-check" class="text-blue-600"></i>
+                        Panel de Control e Inspección de Asistencia
+                    </h2>
+                    <p class="text-xs text-slate-500">Selecciona el curso y paralelo para consultar las lecturas registradas.</p>
+                </div>
+
+                <!-- Selectores de Curso y Paralelo -->
+                <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                    <!-- Selector de Curso -->
+                    <div class="flex bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+                        <button onclick="setFilterGrade('1ro')" class="btn-grade px-3 py-1.5 rounded-lg transition" data-grade="1ro">1ro</button>
+                        <button onclick="setFilterGrade('2do')" class="btn-grade px-3 py-1.5 rounded-lg transition" data-grade="2do">2do</button>
+                        <button onclick="setFilterGrade('3ro')" class="btn-grade px-3 py-1.5 rounded-lg transition" data-grade="3ro">3ro</button>
+                        <button onclick="setFilterGrade('4to')" class="btn-grade px-3 py-1.5 rounded-lg transition" data-grade="4to">4to</button>
+                        <button onclick="setFilterGrade('5to')" class="btn-grade px-3 py-1.5 rounded-lg transition" data-grade="5to">5to</button>
+                        <button onclick="setFilterGrade('6to')" class="btn-grade px-3 py-1.5 rounded-lg transition" data-grade="6to">6to</button>
+                    </div>
+
+                    <!-- Selector de Paralelo -->
+                    <div class="flex bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+                        <button onclick="setFilterParallel('A')" class="btn-parallel px-3 py-1.5 rounded-lg transition" data-parallel="A">Paralelo A</button>
+                        <button onclick="setFilterParallel('B')" class="btn-parallel px-3 py-1.5 rounded-lg transition" data-parallel="B">Paralelo B</button>
+                        <button onclick="setFilterParallel('C')" class="btn-parallel px-3 py-1.5 rounded-lg transition" data-parallel="C">Paralelo C</button>
+                    </div>
+
+                    <button onclick="exportAttendanceCSV()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-medium transition flex items-center gap-1.5 ml-auto md:ml-0">
+                        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                        <span>Exportar CSV</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Resumen de Métricas del Curso Seleccionado -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <span class="text-xs text-slate-500 font-medium">Total Registrados</span>
+                    <p id="statTotal" class="text-2xl font-extrabold text-slate-800 mt-1">0</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <span class="text-xs text-emerald-600 font-medium">A Tiempo</span>
+                    <p id="statOnTime" class="text-2xl font-extrabold text-emerald-600 mt-1">0</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <span class="text-xs text-amber-600 font-medium">Atrasos</span>
+                    <p id="statLate" class="text-2xl font-extrabold text-amber-600 mt-1">0</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <span class="text-xs text-blue-600 font-medium">Salidas Marcadas</span>
+                    <p id="statExit" class="text-2xl font-extrabold text-blue-600 mt-1">0</p>
+                </div>
+            </div>
+
+            <!-- Tabla de Registros de Asistencia -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="p-4 border-b border-slate-100 flex justify-between items-center">
+                    <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                        <span>Listado de Asistencia: </span>
+                        <span id="currentFilterLabel" class="bg-blue-100 text-blue-700 px-2.5 py-0.5 rounded-full text-xs font-semibold">1ro "A"</span>
+                    </h3>
+                    <button onclick="clearAttendanceHistory()" class="text-xs text-rose-600 hover:text-rose-800 font-medium flex items-center gap-1">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        Limpiar Registros
+                    </button>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                                <th class="p-3">Estudiante</th>
+                                <th class="p-3">Colegio</th>
+                                <th class="p-3">UID NFC</th>
+                                <th class="p-3">Hora Entrada</th>
+                                <th class="p-3">Hora Salida</th>
+                                <th class="p-3">Estado</th>
+                                <th class="p-3 text-right">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendanceTableBody" class="divide-y divide-slate-100">
+                            <!-- Filas dinámicas -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================================================================= -->
+        <!-- MODO SIMULADOR HARDWARE RC522 & DIAGRAMA DE CONEXIÓN -->
+        <!-- ================================================================= -->
+        <section id="hardwareView" class="hidden space-y-6">
+            
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <!-- Simulador de Antena RFID/NFC -->
+                <div class="lg:col-span-6 bg-slate-900 text-white p-6 rounded-2xl shadow-xl flex flex-col justify-between">
+                    <div>
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-md font-bold flex items-center gap-2 text-blue-400">
+                                <i data-lucide="cpu"></i>
+                                Módulo Lector RFID RC522 (Simulador SPI)
+                            </h2>
+                            <span class="text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-md font-mono">Status: ONLINE (13.56 MHz)</span>
+                        </div>
+
+                        <!-- Representación Visual del Hardware -->
+                        <div class="my-6 flex flex-col items-center justify-center p-8 border-2 border-dashed border-slate-700 rounded-2xl relative bg-slate-950/50">
+                            <!-- Placa RC522 -->
+                            <div class="w-48 h-32 bg-blue-900/80 border-2 border-blue-500 rounded-xl flex flex-col items-center justify-center relative p-3 text-center shadow-lg">
+                                <div class="w-24 h-16 border-2 border-amber-400/80 rounded-lg flex items-center justify-center">
+                                    <span class="text-[10px] font-mono text-amber-300">ANTENA PCB</span>
+                                </div>
+                                <span class="text-[10px] text-slate-300 font-bold mt-2">MFRC522 IC</span>
+                                <div class="absolute -bottom-2 flex space-x-1">
+                                    <span class="w-2 h-2 bg-slate-400 rounded-full"></span>
+                                    <span class="w-2 h-2 bg-slate-400 rounded-full"></span>
+                                    <span class="w-2 h-2 bg-slate-400 rounded-full"></span>
+                                    <span class="w-2 h-2 bg-slate-400 rounded-full"></span>
+                                </div>
+                            </div>
+
+                            <p class="text-xs text-slate-400 mt-4 text-center">
+                                Simula el escaneo aproximando la credencial NFC activa del estudiante.
+                            </p>
+
+                            <button onclick="simulateHardwareScan()" class="mt-4 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-xl shadow transition flex items-center gap-2">
+                                <i data-lucide="zap" class="w-4 h-4"></i>
+                                <span>Simular Detección de Tarjeta/Móvil NFC</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Logs Consola Serial -->
+                    <div class="bg-black/80 rounded-xl p-3 font-mono text-xs text-slate-300 border border-slate-800">
+                        <div class="flex justify-between items-center text-slate-500 mb-2 border-b border-slate-800 pb-1">
+                            <span>Monitor Serie UART (115200 baud)</span>
+                            <button onclick="clearSerialLogs()" class="hover:text-slate-300">Limpiar</button>
+                        </div>
+                        <div id="serialLogConsole" class="h-28 overflow-y-auto space-y-1 text-[11px]">
+                            <div class="text-emerald-400">[SYSTEM] MFRC522 Inicializado correctamente. Listo para recibir datos...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Esquema de Conexiones y Código C++ para Arduino/ESP32 -->
+                <div class="lg:col-span-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                    <div>
+                        <h2 class="text-md font-bold text-slate-800 mb-3 flex items-center gap-2">
+                            <i data-lucide="workflow" class="text-blue-600"></i>
+                            Guía Técnica de Conexión de Hardware
+                        </h2>
+
+                        <!-- Tabla de Pines -->
+                        <div class="overflow-x-auto mb-4">
+                            <table class="w-full text-xs text-left border border-slate-200 rounded-lg overflow-hidden">
+                                <thead class="bg-slate-100 text-slate-700 font-bold">
+                                    <tr>
+                                        <th class="p-2 border-b">Pin RC522</th>
+                                        <th class="p-2 border-b">Arduino Uno/Nano</th>
+                                        <th class="p-2 border-b">ESP32 Pinout</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100 text-slate-600">
+                                    <tr><td class="p-2 font-mono font-bold text-blue-600">SDA (SS)</td><td class="p-2">D10</td><td class="p-2">GPIO 5</td></tr>
+                                    <tr><td class="p-2 font-mono font-bold text-blue-600">SCK</td><td class="p-2">D13</td><td class="p-2">GPIO 18</td></tr>
+                                    <tr><td class="p-2 font-mono font-bold text-blue-600">MOSI</td><td class="p-2">D11</td><td class="p-2">GPIO 23</td></tr>
+                                    <tr><td class="p-2 font-mono font-bold text-blue-600">MISO</td><td class="p-2">D12</td><td class="p-2">GPIO 19</td></tr>
+                                    <tr><td class="p-2 font-mono font-bold text-rose-600">VCC / 3.3V</td><td class="p-2">3.3V (¡NO 5V!)</td><td class="p-2">3.3V</td></tr>
+                                    <tr><td class="p-2 font-mono font-bold text-slate-800">GND</td><td class="p-2">GND</td><td class="p-2">GND</td></tr>
+                                    <tr><td class="p-2 font-mono font-bold text-slate-600">RST</td><td class="p-2">D9</td><td class="p-2">GPIO 22</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Fragmento de Código Firmware -->
+                        <div class="relative">
+                            <span class="text-xs font-semibold text-slate-600 block mb-1">Código Arduino C++ MFRC522 enviado por Serie:</span>
+                            <pre class="bg-slate-900 text-slate-200 text-[10px] p-3 rounded-xl overflow-x-auto font-mono">
+#include &lt;SPI.h&gt;
+#include &lt;MFRC522.h&gt;
+
+#define SS_PIN 10
+#define RST_PIN 9
+MFRC522 rfid(SS_PIN, RST_PIN);
+
+void setup() {
+  Serial.begin(115200);
+  SPI.begin();
+  rfid.PCD_Init();
+}
+
+void loop() {
+  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) return;
+  String uidStr = "";
+  for (byte i = 0; i &lt; rfid.uid.size; i++) {
+    uidStr += String(rfid.uid.uidByte[i] &lt; 0x10 ? "0" : "");
+    uidStr += String(rfid.uid.uidByte[i], HEX);
+  }
+  uidStr.toUpperCase();
+  Serial.println("UID_NFC:" + uidStr);
+  rfid.PICC_HaltA();
+  delay(1500);
+}
+                            </pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="bg-white border-t border-slate-200 py-3 px-4 text-center text-xs text-slate-500">
+        <p>Sistema de Gestión de Asistencia Digital Escolar vía NFC y Lector Casero RC522 &copy; 2026</p>
+    </footer>
+
+    <!-- NOTIFICATION TOAST -->
+    <div id="toast" class="fixed bottom-5 right-5 transform translate-y-20 opacity-0 transition-all duration-300 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-3 z-50">
+        <i id="toastIcon" data-lucide="check-circle" class="w-5 h-5 text-emerald-400"></i>
+        <span id="toastMessage" class="text-xs font-medium">Notificación</span>
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        // Global App State
+        let currentRole = 'student';
+        let currentFilterGrade = '1ro';
+        let currentFilterParallel = 'A';
+
+        // Estudiante actual local
+        let studentProfile = {
+            name: 'Juan Carlos Pérez',
+            school: 'U.E. Bolivia',
+            grade: '1ro',
+            parallel: 'A',
+            uid: 'A4:3B:89:12'
+        };
+
+        // Registros de Asistencia
+        let attendanceLogs = [];
+
+        // Inicialización
+        window.onload = function() {
+            lucide.createIcons();
+            loadLocalStorageData();
+            updateStudentUI();
+            updateFilterUI();
+            renderAttendanceTable();
+        };
+
+        // Cambiar Roles
+        function setRole(role) {
+            currentRole = role;
+            document.getElementById('studentView').classList.add('hidden');
+            document.getElementById('teacherView').classList.add('hidden');
+            document.getElementById('hardwareView').classList.add('hidden');
+
+            document.getElementById('btnRoleStudent').className = "px-3 py-1.5 rounded-lg font-medium transition flex items-center space-x-2 text-slate-300 hover:text-white";
+            document.getElementById('btnRoleTeacher').className = "px-3 py-1.5 rounded-lg font-medium transition flex items-center space-x-2 text-slate-300 hover:text-white";
+            document.getElementById('btnRoleHardware').className = "px-3 py-1.5 rounded-lg font-medium transition flex items-center space-x-2 text-slate-300 hover:text-white";
+
+            if (role === 'student') {
+                document.getElementById('studentView').classList.remove('hidden');
+                document.getElementById('btnRoleStudent').className = "px-3 py-1.5 rounded-lg font-medium transition flex items-center space-x-2 bg-blue-600 text-white";
+            } else if (role === 'teacher') {
+                document.getElementById('teacherView').classList.remove('hidden');
+                document.getElementById('btnRoleTeacher').className = "px-3 py-1.5 rounded-lg font-medium transition flex items-center space-x-2 bg-blue-600 text-white";
+                renderAttendanceTable();
+            } else if (role === 'hardware') {
+                document.getElementById('hardwareView').classList.remove('hidden');
+                document.getElementById('btnRoleHardware').className = "px-3 py-1.5 rounded-lg font-medium transition flex items-center space-x-2 bg-blue-600 text-white";
+            }
+        }
+
+        // Generar UID aleatorio para NFC
+        function generateRandomUID() {
+            const hexChars = '0123456789ABCDEF';
+            let uid = '';
+            for (let i = 0; i < 4; i++) {
+                uid += hexChars.charAt(Math.floor(Math.random() * 16));
+                uid += hexChars.charAt(Math.floor(Math.random() * 16));
+                if (i < 3) uid += ':';
+            }
+            document.getElementById('inputNfcUid').value = uid;
+        }
+
+        // Guardar Perfil del Estudiante
+        function saveStudentProfile(e) {
+            e.preventDefault();
+            studentProfile = {
+                name: document.getElementById('inputName').value,
+                school: document.getElementById('inputSchool').value,
+                grade: document.getElementById('inputGrade').value,
+                parallel: document.getElementById('inputParallel').value,
+                uid: document.getElementById('inputNfcUid').value
+            };
+
+            localStorage.setItem('studentProfile', JSON.stringify(studentProfile));
+            updateStudentUI();
+            showToast('Perfil actualizado correctamente', 'check-circle');
+        }
+
+        // Actualizar UI con datos del estudiante
+        function updateStudentUI() {
+            document.getElementById('inputName').value = studentProfile.name;
+            document.getElementById('inputSchool').value = studentProfile.school;
+            document.getElementById('inputGrade').value = studentProfile.grade;
+            document.getElementById('inputParallel').value = studentProfile.parallel;
+            document.getElementById('inputNfcUid').value = studentProfile.uid;
+
+            document.getElementById('cardName').innerText = studentProfile.name;
+            document.getElementById('cardSchool').innerText = studentProfile.school;
+            document.getElementById('cardGradeParallel').innerText = `${studentProfile.grade} "${studentProfile.parallel}"`;
+            document.getElementById('cardUid').innerText = studentProfile.uid;
+
+            // Generar Código QR representativo de la tarjeta
+            const qrContainer = document.getElementById("qrcode");
+            qrContainer.innerHTML = "";
+            new QRCode(qrContainer, {
+                text: JSON.stringify({ uid: studentProfile.uid, name: studentProfile.name }),
+                width: 54,
+                height: 54
+            });
+        }
+
+        // Simular o Ejecutar Escaneo NFC desde el Móvil o Hardware
+        function triggerNfcTap() {
+            registerAttendance(studentProfile);
+        }
+
+        function simulateHardwareScan() {
+            registerAttendance(studentProfile);
+            addSerialLog(`[SPI LECTOR] Tarjeta detectada. UID: ${studentProfile.uid}`);
+        }
+
+        // Lógica Principal de Registro de Asistencia (Entrada / Salida)
+        function registerAttendance(student) {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const dateString = now.toLocaleDateString();
+
+            // Verificar si el estudiante ya tiene registro en el día actual
+            let existingRecord = attendanceLogs.find(log => log.uid === student.uid && log.date === dateString);
+
+            if (!existingRecord) {
+                // Registrar Entrada
+                const isLate = now.getHours() >= 8 && now.getMinutes() > 15; // Considerar atraso después de 08:15 AM
+                const newRecord = {
+                    id: Date.now(),
+                    name: student.name,
+                    school: student.school,
+                    grade: student.grade,
+                    parallel: student.parallel,
+                    uid: student.uid,
+                    date: dateString,
+                    entryTime: timeString,
+                    exitTime: '--:--',
+                    status: isLate ? 'Atraso' : 'A tiempo'
+                };
+                attendanceLogs.unshift(newRecord);
+                showToast(`Entrada registrada: ${student.name} (${timeString})`, 'log-in');
+            } else if (existingRecord.exitTime === '--:--') {
+                // Registrar Salida
+                existingRecord.exitTime = timeString;
+                existingRecord.status = 'Salida registrada';
+                showToast(`Salida registrada: ${student.name} (${timeString})`, 'log-out');
+            } else {
+                showToast(`Ya se registraron entrada y salida para hoy.`, 'alert-circle');
+            }
+
+            saveLocalStorageData();
+            renderAttendanceTable();
+        }
+
+        // Filtros del Panel de Profesor
+        function setFilterGrade(grade) {
+            currentFilterGrade = grade;
+            updateFilterUI();
+            renderAttendanceTable();
+        }
+
+        function setFilterParallel(parallel) {
+            currentFilterParallel = parallel;
+            updateFilterUI();
+            renderAttendanceTable();
+        }
+
+        function updateFilterUI() {
+            document.querySelectorAll('.btn-grade').forEach(btn => {
+                if (btn.dataset.grade === currentFilterGrade) {
+                    btn.className = "btn-grade px-3 py-1.5 rounded-lg transition bg-blue-600 text-white shadow-sm";
+                } else {
+                    btn.className = "btn-grade px-3 py-1.5 rounded-lg transition text-slate-600 hover:bg-slate-200";
+                }
+            });
+
+            document.querySelectorAll('.btn-parallel').forEach(btn => {
+                if (btn.dataset.parallel === currentFilterParallel) {
+                    btn.className = "btn-parallel px-3 py-1.5 rounded-lg transition bg-blue-600 text-white shadow-sm";
+                } else {
+                    btn.className = "btn-parallel px-3 py-1.5 rounded-lg transition text-slate-600 hover:bg-slate-200";
+                }
+            });
+
+            document.getElementById('currentFilterLabel').innerText = `${currentFilterGrade} "${currentFilterParallel}"`;
+        }
+
+        // Renderizar Tabla de Asistencia para Profesores
+        function renderAttendanceTable() {
+            const tbody = document.getElementById('attendanceTableBody');
+            tbody.innerHTML = '';
+
+            const filteredLogs = attendanceLogs.filter(log => log.grade === currentFilterGrade && log.parallel === currentFilterParallel);
+
+            // Actualizar Métricas
+            document.getElementById('statTotal').innerText = filteredLogs.length;
+            document.getElementById('statOnTime').innerText = filteredLogs.filter(l => l.status === 'A tiempo').length;
+            document.getElementById('statLate').innerText = filteredLogs.filter(l => l.status === 'Atraso').length;
+            document.getElementById('statExit').innerText = filteredLogs.filter(l => l.exitTime !== '--:--').length;
+
+            if (filteredLogs.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="p-6 text-center text-slate-400">
+                            No hay registros de asistencia para ${currentFilterGrade} "${currentFilterParallel}".
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            filteredLogs.forEach(log => {
+                let badgeClass = 'bg-emerald-100 text-emerald-700';
+                if (log.status === 'Atraso') badgeClass = 'bg-amber-100 text-amber-700';
+                if (log.status === 'Salida registrada') badgeClass = 'bg-blue-100 text-blue-700';
+
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-50 transition";
+                tr.innerHTML = `
+                    <td class="p-3 font-semibold text-slate-800">${log.name}</td>
+                    <td class="p-3 text-slate-500">${log.school}</td>
+                    <td class="p-3 font-mono text-slate-600">${log.uid}</td>
+                    <td class="p-3 font-medium text-emerald-600">${log.entryTime}</td>
+                    <td class="p-3 font-medium text-blue-600">${log.exitTime}</td>
+                    <td class="p-3">
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${badgeClass}">
+                            ${log.status}
+                        </span>
+                    </td>
+                    <td class="p-3 text-right">
+                        <button onclick="deleteRecord(${log.id})" class="text-rose-500 hover:text-rose-700">
+                            <i data-lucide="x" class="w-4 h-4"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            lucide.createIcons();
+        }
+
+        // Eliminar Registro
+        function deleteRecord(id) {
+            attendanceLogs = attendanceLogs.filter(log => log.id !== id);
+            saveLocalStorageData();
+            renderAttendanceTable();
+            showToast('Registro eliminado', 'trash');
+        }
+
+        // Limpiar Historial Completo
+        function clearAttendanceHistory() {
+            if (confirm("¿Estás seguro de borrar todos los registros de asistencia?")) {
+                attendanceLogs = [];
+                saveLocalStorageData();
+                renderAttendanceTable();
+                showToast('Historial limpiado completamente', 'trash-2');
+            }
+        }
+
+        // Exportar a CSV
+        function exportAttendanceCSV() {
+            if (attendanceLogs.length === 0) {
+                showToast('No hay datos para exportar', 'alert-circle');
+                return;
+            }
+
+            let csvContent = "data:text/csv;charset=utf-8,Estudiante,Colegio,Curso,Paralelo,UID,Fecha,Hora Entrada,Hora Salida,Estado\n";
+            attendanceLogs.forEach(log => {
+                csvContent += `"${log.name}","${log.school}","${log.grade}","${log.parallel}","${log.uid}","${log.date}","${log.entryTime}","${log.exitTime}","${log.status}"\n`;
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `Asistencia_${currentFilterGrade}_${currentFilterParallel}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Funciones del Hardware Console Logs
+        function addSerialLog(msg) {
+            const consoleBox = document.getElementById('serialLogConsole');
+            const time = new Date().toLocaleTimeString();
+            const logItem = document.createElement('div');
+            logItem.innerText = `[${time}] ${msg}`;
+            consoleBox.appendChild(logItem);
+            consoleBox.scrollTop = consoleBox.scrollHeight;
+        }
+
+        function clearSerialLogs() {
+            document.getElementById('serialLogConsole').innerHTML = '';
+        }
+
+        // LocalStorage Persistencia
+        function saveLocalStorageData() {
+            localStorage.setItem('attendanceLogs', JSON.stringify(attendanceLogs));
+        }
+
+        function loadLocalStorageData() {
+            const savedProfile = localStorage.getItem('studentProfile');
+            if (savedProfile) {
+                studentProfile = JSON.parse(savedProfile);
+            } else {
+                generateRandomUID();
+            }
+
+            const savedLogs = localStorage.getItem('attendanceLogs');
+            if (savedLogs) {
+                attendanceLogs = JSON.parse(savedLogs);
+            }
+        }
+
+        // Toast de Notificación
+        function showToast(message, iconName = 'check-circle') {
+            const toast = document.getElementById('toast');
+            const toastMessage = document.getElementById('toastMessage');
+            const toastIcon = document.getElementById('toastIcon');
+
+            toastMessage.innerText = message;
+            toastIcon.setAttribute('data-lucide', iconName);
+            lucide.createIcons();
+
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            toast.classList.add('translate-y-0', 'opacity-100');
+
+            setTimeout(() => {
+                toast.classList.remove('translate-y-0', 'opacity-100');
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
